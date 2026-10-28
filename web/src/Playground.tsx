@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, KeyboardEvent } from "react";
 import {
   Bot,
@@ -35,21 +35,14 @@ import "./playground.css";
 type Attachment = { kind: "text" | "image"; name: string; mime_type: string; text?: string; data_url?: string };
 type SearchResult = { title: string; url: string; snippet: string };
 type Message = { role: "user" | "assistant"; content: string; reasoning?: string; raw?: string; attachments?: Attachment[]; sources?: SearchResult[] };
-type ChatUsage = { prompt_tokens?: number; completion_tokens?: number; input_tokens?: number; output_tokens?: number };
 type SavedSettings = { systemPrompt?: string; temperature?: number; topP?: number; frequencyPenalty?: number; presencePenalty?: number; maxTokens?: number; seed?: string; enabledParams?: { temperature: boolean; topP: boolean; frequencyPenalty: boolean; presencePenalty: boolean; maxTokens: boolean; seed: boolean }; stream?: boolean; searchEnabled?: boolean };
 type Completion = {
   choices?: { message?: { content?: string | null; reasoning_content?: string | null }; delta?: { content?: string | null; reasoning_content?: string | null }; finish_reason?: string | null }[];
-  usage?: ChatUsage;
   error?: { message?: string } | string;
 };
 
 function responseError(value: Completion, fallback: string) {
   return typeof value.error === "string" ? value.error : value.error?.message || fallback;
-}
-
-function formatUsage(usage: ChatUsage | null) {
-  if (!usage) return "等待首次调用";
-  return `${usage.prompt_tokens ?? usage.input_tokens ?? 0} 输入 · ${usage.completion_tokens ?? usage.output_tokens ?? 0} 输出 Token`;
 }
 
 function attachmentMime(file: File) {
@@ -165,7 +158,28 @@ export function Playground({ state, notify }: { state: State; notify: Notice }) 
   const [stream, setStream] = useState(typeof savedSettings.stream === "boolean" ? savedSettings.stream : true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [usage, setUsage] = useState<ChatUsage | null>(null);
+  const chatRef = useRef<HTMLElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const [composerFrame, setComposerFrame] = useState<{ left: number; width: number; height: number; bottom: number } | null>(null);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const chat = chatRef.current?.getBoundingClientRect();
+      const composer = composerRef.current?.getBoundingClientRect();
+      if (!chat || !composer) return;
+      setComposerFrame((previous) => {
+        const inset = window.innerWidth <= 650 ? 12 : 20;
+        const next = { left: chat.left + inset, width: Math.max(0, chat.width - inset * 2), height: composer.height, bottom: Number.parseFloat(getComputedStyle(composerRef.current!).bottom) || 0 };
+        return previous && Math.abs(previous.left - next.left) < 1 && Math.abs(previous.width - next.width) < 1 && Math.abs(previous.height - next.height) < 1 && Math.abs(previous.bottom - next.bottom) < 1 ? previous : next;
+      });
+    };
+    const observer = new ResizeObserver(measure);
+    if (chatRef.current) observer.observe(chatRef.current);
+    if (composerRef.current) observer.observe(composerRef.current);
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, { passive: true });
+    measure();
+    return () => { observer.disconnect(); window.removeEventListener("resize", measure); window.removeEventListener("scroll", measure); };
+  }, []);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [rawIndex, setRawIndex] = useState<number | null>(null);
@@ -276,7 +290,6 @@ export function Playground({ state, notify }: { state: State; notify: Notice }) 
     abortRef.current = controller;
     setBusy(true);
     setError("");
-    setUsage(null);
     setMessages([...history, { role: "assistant", content: "" }]);
     try {
       let sources: SearchResult[] = [];
@@ -352,7 +365,6 @@ export function Playground({ state, notify }: { state: State; notify: Notice }) 
             content += delta;
           }
           if (delta || thought) setMessages([...history, { role: "assistant", content, reasoning, sources }]);
-          if (value.usage) setUsage(value.usage);
         };
         while (true) {
           const result = await reader.read();
@@ -371,7 +383,6 @@ export function Playground({ state, notify }: { state: State; notify: Notice }) 
         if (value.error) throw new Error(responseError(value, "生成失败"));
         const content = value.choices?.[0]?.message?.content || "";
         setMessages([...history, { role: "assistant", content, reasoning: value.choices?.[0]?.message?.reasoning_content || "", raw: JSON.stringify(value, null, 2), sources }]);
-        if (value.usage) setUsage(value.usage);
       }
     } catch (failure) {
       if (controller.signal.aborted) {
@@ -411,7 +422,6 @@ export function Playground({ state, notify }: { state: State; notify: Notice }) 
     setDraft("");
     setAttachments([]);
     setError("");
-    setUsage(null);
     inputRef.current?.focus();
   }
 
@@ -513,7 +523,7 @@ export function Playground({ state, notify }: { state: State; notify: Notice }) 
           </div>
         </aside>
 
-        <section className="playground-chat" aria-label="聊天游乐场">
+        <section className="playground-chat" aria-label="聊天游乐场" ref={chatRef} style={{ paddingBottom: composerFrame ? composerFrame.height + composerFrame.bottom + 20 : 190 }}>
           <div className="playground-messages" ref={scrollRef} aria-live="polite">
             {!messages.length ? (
               <div className="playground-empty">
@@ -535,21 +545,23 @@ export function Playground({ state, notify }: { state: State; notify: Notice }) 
               <article className={`playground-message ${message.role}`} key={index}>
                 <span className="playground-message-avatar">{message.role === "user" ? <UserRound size={18} /> : <Bot size={19} />}</span>
                 <div className="playground-message-body">
-                  <div className="playground-message-meta"><strong>{message.role === "user" ? "你" : "助手"}</strong>
-                    {message.content && <button type="button" title="复制" aria-label="复制消息" onClick={() => void copyMessage(message.content, index)}>{copiedIndex === index ? <Check size={15} /> : <Copy size={15} />}</button>}
-                    {message.role === "user" && !busy && <button type="button" title="编辑" aria-label="编辑消息" onClick={() => editMessage(index)}><Pencil size={15} /></button>}
-                    {!busy && <button type="button" title="删除" aria-label="删除消息" onClick={() => deleteMessage(index)}><Trash2 size={15} /></button>}
-                  </div>
+                  <div className="playground-message-meta"><strong>{message.role === "user" ? "你" : "助手"}</strong></div>
                   {message.attachments?.length ? <div className="playground-message-files">{message.attachments.map((file, fileIndex) => <span key={`${file.name}-${fileIndex}`}><Paperclip size={12} />{file.name}</span>)}</div> : null}
                   {message.reasoning && <details className="playground-reasoning"><summary>思考内容</summary><div>{message.reasoning}</div></details>}
                   {message.content ? <div className="playground-message-text">{message.role === "assistant" ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown> : message.content}</div> : <span className="playground-thinking"><i /><i /><i /><span>正在生成…</span></span>}
                   {message.sources?.length ? <div className="playground-sources"><strong><Globe2 size={13} /> 搜索来源</strong>{message.sources.map((source, sourceIndex) => <a key={`${source.url}-${sourceIndex}`} href={source.url} target="_blank" rel="noreferrer" title={source.snippet}>{sourceIndex + 1}. {source.title}</a>)}</div> : null}
                   {message.role === "assistant" && message.raw && <div className="playground-raw-toggle"><button type="button" onClick={() => setRawIndex(rawIndex === index ? null : index)}>{rawIndex === index ? "预览" : "原始响应"}</button>{rawIndex === index && <pre>{message.raw}</pre>}</div>}
+                  {(message.content || !busy) && <div className="playground-message-actions" aria-label={`${message.role === "user" ? "你的" : "助手"}消息操作`}>
+                    {message.content && <button type="button" title="复制" aria-label="复制消息" onClick={() => void copyMessage(message.content, index)}>{copiedIndex === index ? <Check size={15} /> : <Copy size={15} />}</button>}
+                    {message.role === "user" && !busy && <button type="button" title="编辑" aria-label="编辑消息" onClick={() => editMessage(index)}><Pencil size={15} /></button>}
+                    {!busy && <button type="button" title="删除" aria-label="删除消息" onClick={() => deleteMessage(index)}><Trash2 size={15} /></button>}
+                  </div>}
                 </div>
               </article>
             ))}
           </div>
-          <div className="playground-composer-wrap">
+        </section>
+        <div className="playground-composer-wrap" ref={composerRef} style={composerFrame ? { left: composerFrame.left, width: composerFrame.width } : undefined}>
             <ErrorBox message={error} />
             {error && messages.at(-1)?.role === "user" && <button type="button" className="playground-regenerate" onClick={regenerate}><RotateCcw size={14} /> 重试</button>}
             {messages.length > 0 && !busy && <button type="button" className="playground-regenerate" onClick={regenerate}><RotateCcw size={14} /> 重新生成回复</button>}
@@ -574,9 +586,7 @@ export function Playground({ state, notify }: { state: State; notify: Notice }) 
                 <button type="button" className="playground-new-chat" onClick={() => reset(true)} disabled={!messages.length && !draft}><MessageSquareText size={16} />新对话</button>
               </div>
             </div>
-            <div className="playground-composer-foot"><span>Enter 发送 · Shift + Enter 换行</span><span>{formatUsage(usage)}</span><span>输出仅供测试参考</span></div>
-          </div>
-        </section>
+        </div>
       </div>
     </div>
   );

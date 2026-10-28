@@ -49,7 +49,7 @@ declare global {
 }
 
 const navigation = [
-  { id: "playground", label: "游乐场", icon: MessageSquareText, section: "聊天" },
+  { id: "playground", label: "聊天", icon: MessageSquareText, section: "对话" },
   { id: "dashboard", label: "仪表盘", icon: LayoutDashboard, section: "数据和调用" },
   { id: "keys", label: "密钥管理", icon: KeyRound },
   { id: "groups", label: "分组管理", icon: FolderClosed, section: "构建和管理" },
@@ -489,7 +489,7 @@ export default function App() {
           </div>
         </div>
       </aside>
-      <div className="workspace">
+      <div className={`workspace${page === "playground" ? " playground-workspace" : ""}`}>
         <PromoBanner />
         <header className="topbar">
           <div className="breadcrumb">
@@ -540,7 +540,7 @@ export default function App() {
             </IconButton>
           </div>
         </header>
-        <main className="main-content">
+        <main className={`main-content${page === "playground" ? " playground-main" : ""}`}>
           {pageError && <div className="page-load-error" role="alert">
             <ErrorBox message={`未能更新${activePage.label}：${pageError}`} />
             <Button className="small-button" onClick={() => void navigate(page, true)}>

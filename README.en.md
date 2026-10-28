@@ -4,7 +4,7 @@
 
 A self-hosted Rust Responses / Chat Completions / Anthropic Messages API relay with a responsive desktop/mobile administration console, SQLite persistence, and Docker Compose deployment. The console includes a dashboard, groups, upstream accounts, client API keys, service providers, request logs, and system settings.
 
-Current release: **v0.13.0**, adding a full-height chat playground with attachments and web search, improved navigation, actions below the composer, and searchable selectors. It retains the provider login and session fixes from **v0.12.2**.
+Current release: **v0.13.1**, refining the full-height chat layout, message actions, and floating rounded composer. It retains the attachments, web search, and searchable selectors from **v0.13.0**, and the provider login and session fixes from **v0.12.2**.
 
 ## Relay Recommendation: 杂鱼 API
 
@@ -95,6 +95,12 @@ In account creation, **From service provider** lists existing keys with their na
 Choose **Create from provider** at the top of the key list, then manually select an available group in the second dialog. **Create** sends the server-generated name `【ZakoAI】` followed by the original group name; **Cancel** sends no creation request. On success, the dialog closes and the list refreshes. The UI snapshots fresh key IDs immediately before creation and selects the unique new, available key matching the returned name and group, excluding old same-name keys. Refresh again if visibility is delayed; multiple matching new keys require manual selection. A failed response can follow a committed upstream write, so creation is never automatically retried: refresh and confirm first.
 
 Sub2API creates a key in the selected group. New API uses unlimited quota, no expiry, no model or IP restrictions and no cross-group retry; adjust restrictions at the upstream site if needed. These are upstream credentials, distinct from local client keys used to access this relay.
+
+### v0.13.1 Chat Layout Refinements
+
+- Rename the sidebar section to Conversation and its menu item to Chat; let the conversation fill the workspace with a transparent background.
+- Place copy, edit, and delete actions below each message and remove redundant composer hints.
+- Float the entire rounded composer above the bottom edge with responsive side spacing, while keeping the final message visible when scrolling. No database migration is needed.
 
 ### v0.13.0 Chat Playground
 
